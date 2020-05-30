@@ -1,45 +1,80 @@
-// const e = require("express");
+const cachedItems = [
+    "/",
+    "/index.html",
+    "/styles.css",
+    "/index.js",
+    "/indexedDB.js",
+    "/manifest.webmanifest",
+    "/icons/icon-192x192.png",
+    "/icons/icon-512x512.png",
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
+    "https://cdn.jsdelivr.net/npm/chart.js@2.8.0"
+];
 
-var cachedItems = ["/", "index.js", "icons/icon-192x192.png", "icons/icon-512x512.png", "manifest.webmanifest", "styles.css"];
+const CACHE_NAME = "budget-cache-v2";
+const DATA_CACHE_NAME = "data-cache-v1";
 
-const CACHE_NAME = 'budget-cache-v1';
-const DATA_CACHE_NAME = 'data-cache-v1';
 
-// install event
-self.addEventListener('install', evt => {
+self.addEventListener("install", function(evt){
+    console.log("install event triggered");
     evt.waitUntil(
-      caches.open(CACHE_NAME).then(cache => {
-        console.log("Your files were pre-cached successfully!");
-        cache.addAll(cachedItems);
-      })
-      .then(() => self.skipWaiting())
-    );
-  });
-
-// activate event
-self.addEventListener('activate', evt => {
-    console.log('Service worker activated!');
-    // remove unwanted caches
-    evt.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames.map(cache => {
-                    if(cache !== CACHE_NAME) {
-                        console.log('Service Worker: Clearing old cache');
-                        return caches.delete(cache);
-                    }
-                })
-            )
+        caches.open(CACHE_NAME).then(cache => {
+            console.log("Cache opened");
+            return cache.addAll(cachedItems);
         })
-    )
+    );
+    self.skipWaiting();
 });
 
-// fetch event
-self.addEventListener('fetch', evt => {
-    console.log('Service Worker: Fetching');
-    evt.respondWith(
-        fetch(evt.request).catch(() => caches.match(evt.request))
-    )
-    // if(evt.request.url.includes('/api'))
-});  
 
+self.addEventListener("activate", function(evt){
+    console.log("activate event triggered")
+    evt.waitUntil(
+        caches.keys().then(keyList => {
+            return Promise.all(
+                keyList.map(key => {
+                    if(key != CACHE_NAME && key != DATA_CACHE_NAME){
+                        console.log("Removing the old cache data", key);
+                        return caches.delete(key);
+                    }
+                })
+            );
+        })
+    );
+    self.clients.claim();
+});
+
+
+self.addEventListener("fetch", function(evt){
+    console.log("fetch event triggered");
+    console.log(evt);
+    if(evt.request.url.includes("/api/")){
+        evt.respondWith(
+            caches.open(DATA_CACHE_NAME).then(cache => {
+                return fetch(evt.request).then(response => {
+                    if(response.status === 200){
+                        cache.put(evt.request.url, response.clone())
+                    }
+                    return response;
+                })
+                .catch(err => {
+                    console.log("Serving from service worker")
+                    return cache.match(evt.request);
+                });
+            }).catch(err => {
+                console.log(err);
+            })
+        );
+
+        return;
+    }
+
+    evt.respondWith(
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.match(evt.request).then(response => {
+                return response || fetch(evt.request);
+            });
+        })
+    );
+    
+});
